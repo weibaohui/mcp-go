@@ -54,6 +54,7 @@ func GetRouteParams(ctx context.Context) RouteParams {
 	}
 	return RouteParams{}
 }
+
 func (s *sseSession) SessionID() string {
 	return s.sessionID
 }
@@ -81,10 +82,10 @@ type SSEServer struct {
 	useFullURLForMessageEndpoint bool
 	messageEndpoint              string
 	sseEndpoint                  string
+	ssePattern                   string
 	sessions                     sync.Map
 	srv                          *http.Server
 	contextFunc                  SSEContextFunc
-	ssePattern                   string
 	keepAlive                    bool
 	keepAliveInterval            time.Duration
 }
@@ -176,8 +177,7 @@ func WithKeepAlive(keepAlive bool) SSEOption {
 	}
 }
 
-// WithContextFunc sets a function that will be called to customise the context
-// to the server using the incoming request.
+// WithSSEContextFunc sets a function that will be called to customise the context
 func WithSSEContextFunc(fn SSEContextFunc) SSEOption {
 	return func(s *SSEServer) {
 		s.contextFunc = fn
@@ -324,7 +324,7 @@ func (s *SSEServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 					session.eventQueue <- fmt.Sprintf(":ping - %s\n\n", time.Now().Format(time.RFC3339))
 				case <-session.done:
 					return
-				case <-r.Context().Done():
+				case <-ctx.Done():
 					return
 				}
 			}
@@ -379,6 +379,7 @@ func (s *SSEServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session := sessionI.(*sseSession)
+
 	// Create base context with session
 	ctx := s.server.WithContext(r.Context(), session)
 
@@ -387,8 +388,7 @@ func (s *SSEServer) handleMessage(w http.ResponseWriter, r *http.Request) {
 		ctx = context.WithValue(ctx, RouteParamsKey{}, session.routeParams)
 	}
 
-	// Set the client context before handling the message
-	ctx = s.server.WithContext(ctx, session)
+	// Apply custom context function if set
 	if s.contextFunc != nil {
 		ctx = s.contextFunc(ctx, r)
 	}
@@ -467,6 +467,7 @@ func (s *SSEServer) SendEventToSession(
 		return fmt.Errorf("event queue full")
 	}
 }
+
 func (s *SSEServer) GetUrlPath(input string) (string, error) {
 	parse, err := url.Parse(input)
 	if err != nil {
@@ -478,6 +479,7 @@ func (s *SSEServer) GetUrlPath(input string) (string, error) {
 func (s *SSEServer) CompleteSseEndpoint() string {
 	return s.baseURL + s.basePath + s.sseEndpoint
 }
+
 func (s *SSEServer) CompleteSsePath() string {
 	path, err := s.GetUrlPath(s.CompleteSseEndpoint())
 	if err != nil {
@@ -489,6 +491,7 @@ func (s *SSEServer) CompleteSsePath() string {
 func (s *SSEServer) CompleteMessageEndpoint() string {
 	return s.baseURL + s.basePath + s.messageEndpoint
 }
+
 func (s *SSEServer) CompleteMessagePath() string {
 	path, err := s.GetUrlPath(s.CompleteMessageEndpoint())
 	if err != nil {
@@ -500,13 +503,9 @@ func (s *SSEServer) CompleteMessagePath() string {
 // ServeHTTP implements the http.Handler interface.
 func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
-	// Use exact path matching rather than Contains
-	ssePath := s.CompleteSsePath()
-	if ssePath != "" && path == ssePath {
-		s.handleSSE(w, r)
-		return
-	}
 	messagePath := s.CompleteMessagePath()
+
+	// Handle message endpoint
 	if messagePath != "" && path == messagePath {
 		s.handleMessage(w, r)
 		return
@@ -525,6 +524,13 @@ func (s *SSEServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		// If pattern is set but doesn't match, return 404
 		http.NotFound(w, r)
+		return
+	}
+
+	// If no pattern is set, use the default SSE endpoint
+	ssePath := s.CompleteSsePath()
+	if ssePath != "" && path == ssePath {
+		s.handleSSE(w, r)
 		return
 	}
 
