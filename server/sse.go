@@ -83,18 +83,14 @@ type SSEServer struct {
 	useFullURLForMessageEndpoint bool
 	messageEndpoint              string
 	sseEndpoint                  string
-	ssePattern                   string
 	sessions                     sync.Map
 	srv                          *http.Server
 	contextFunc                  SSEContextFunc
 
+	mu                sync.RWMutex
+	ssePattern        string
 	keepAlive         bool
 	keepAliveInterval time.Duration
-
-	mu sync.RWMutex
-	ssePattern                   string
-	keepAlive                    bool
-	keepAliveInterval            time.Duration
 }
 
 // SSEOption defines a function type for configuring SSEServer
