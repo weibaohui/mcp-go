@@ -28,7 +28,7 @@ type sseSession struct {
 	requestID           atomic.Int64
 	notificationChannel chan mcp.JSONRPCNotification
 	initialized         atomic.Bool
-	tools               sync.Map // stores session-specific tools
+	tools               sync.Map    // stores session-specific tools
 	routeParams         RouteParams // Store route parameters in session
 }
 
@@ -735,6 +735,8 @@ func normalizeURLPath(elem ...string) string {
 	}
 
 	return joined
+}
+
 // matchPath checks if the given path matches the pattern and extracts parameters
 // pattern format: /user/:id/profile/:type
 func matchPath(pattern, path string) (bool, RouteParams) {
